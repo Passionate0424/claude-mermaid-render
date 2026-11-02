@@ -925,15 +925,19 @@ test('image mode fills the card width of a wide picture that fits the terminal h
 })
 
 test('image mode keeps the picture whose rows equal the terminal height cap', IMAGE, async ($, on) => {
-  expect(await imageBox($, on, svgOf(300, 120), 'graph TD\n  W3-->W4', { columns: 120, rows: 31 })).toEqual({ columns: 114, rows: 23 })
+  expect(await imageBox($, on, svgOf(300, 120), 'graph TD\n  W3-->W4', { columns: 120, rows: 35 })).toEqual({ columns: 114, rows: 23 })
 })
 
 test('image mode shrinks the picture one row over the terminal height cap', IMAGE, async ($, on) => {
-  expect(await imageBox($, on, svgOf(300, 120), 'graph TD\n  W5-->W6', { columns: 120, rows: 30 })).toEqual({ columns: 110, rows: 22 })
+  expect(await imageBox($, on, svgOf(300, 120), 'graph TD\n  W5-->W6', { columns: 120, rows: 34 })).toEqual({ columns: 110, rows: 22 })
 })
 
 test('image mode bounds a tall picture by the terminal height', IMAGE, async ($, on) => {
-  expect(await imageBox($, on, svgOf(100, 400), 'graph TD\n  W7-->W8', { columns: 120, rows: 40 })).toEqual({ columns: 16, rows: 32 })
+  expect(await imageBox($, on, svgOf(100, 400), 'graph TD\n  W7-->W8', { columns: 120, rows: 40 })).toEqual({ columns: 14, rows: 28 })
+})
+
+test('image mode keeps at least 3 rows however short the terminal', IMAGE, async ($, on) => {
+  expect(await imageBox($, on, svgOf(300, 120), 'graph TD\n  W15-->W16', { columns: 120, rows: 14 })).toEqual({ columns: 15, rows: 3 })
 })
 
 test('image mode never exceeds 255 columns', IMAGE, async ($, on) => {
@@ -950,7 +954,7 @@ test('image mode falls back to a 40-row terminal height when the surface gives n
   })
   const image = await ui.find({ type: 'Image' })
 
-  expect({ columns: image?.props.columns, rows: image?.props.rows }).toEqual({ columns: 16, rows: 32 })
+  expect({ columns: image?.props.columns, rows: image?.props.rows }).toEqual({ columns: 14, rows: 28 })
 })
 
 test('image mode sizes the picture under a tool row by the same fit', IMAGE, async ($, on) => {
