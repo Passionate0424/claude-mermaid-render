@@ -8,7 +8,8 @@ import { countLine, messagesFor } from './messages'
 import type { Messages } from './messages'
 
 type Svg = { isRendered: true; svg: string; width: number; height: number }
-type Png = { path: string; width: number; height: number }
+/** The rasterized picture as a whole PNG file in base64. */
+type Png = { base64: string; width: number; height: number }
 /** What the hook fetched through $ for one source, before anything is drawn. */
 type Prepared = { svg?: Svg | Failure; png?: Png }
 type Draw = { ui: ElementTable; surface: RenderSurface; width: number; rows: number; prepared: Map<string, Prepared>; messages: Messages }
@@ -17,6 +18,8 @@ type FileDiagrams = { path: string; lines: number; sources: string[] }
 const GLYPH_COLOR: Record<Glyph, string> = { label: 'text', line: 'inactive', arrow: 'claude' }
 const SVG_LIMIT = 131072
 const CACHE_LIMIT = 200
+// The most a `{ png }` image source accepts, decoded.
+const PNG_LIMIT = 2097152
 // The card's border and padding.
 const CARD_CHROME = 4
 
@@ -89,10 +92,10 @@ export const register: Register = (on, options) => {
       let png: Png | undefined
       if (e.surface === 'terminal' && svg.isRendered) {
         if (!pngCache.has(key)) {
-          // The terminal reads the PNG itself, so no pixel crosses $.
+          // The picture goes to the terminal as data, not as a file name, because a multiplexer forwards only direct image data.
           const dir = `${((await $.env.get('TMPDIR')) ?? '/tmp').replace(/\/$/, '')}/mermaid-render`
           const name = `${dir}/${hash(key)}`
-          let isRasterized = false
+          let rasterized: Png | undefined
           try {
             await $.process.run(['mkdir', '-p', dir])
             await $.fs.write(`${name}.svg`, svg.svg)
@@ -100,14 +103,16 @@ export const register: Register = (on, options) => {
               ['/usr/bin/env', 'rsvg-convert', '--zoom', '2', '--output', `${name}.png`, `${name}.svg`],
               { timeoutMs: 15000 },
             )
-            isRasterized = ran.exitCode === 0
+            if (ran.exitCode === 0) {
+              const { base64 } = await $.fs.read(`${name}.png`, { as: 'bytes' })
+              if (decodedSize(base64) <= PNG_LIMIT) rasterized = { base64, width: svg.width, height: svg.height }
+            }
           } catch {
-            isRasterized = false
+            rasterized = undefined
           }
-          const evicted = remember(pngCache, key, isRasterized ? { path: `${name}.png`, width: svg.width, height: svg.height } : undefined)
-          // Only the PNG is the cache; the SVG is scratch, and a failed run may leave a half-written PNG.
-          const stale = [`${name}.svg`, ...(isRasterized ? [] : [`${name}.png`]), ...(evicted === undefined ? [] : [evicted.path])]
-          await $.process.run(['rm', '-f', ...stale]).catch(() => undefined)
+          remember(pngCache, key, rasterized)
+          // Both files are scratch: the bytes live in the cache, and a failed run may leave a half-written PNG.
+          await $.process.run(['rm', '-f', `${name}.svg`, `${name}.png`]).catch(() => undefined)
         }
         png = pngCache.get(key)
       }
@@ -272,7 +277,7 @@ function cardBody(draw: Draw, source: string, width: number): { element: RenderE
   if (draw.surface === 'terminal' && png !== undefined && 'Image' in ui) {
     const { Image } = ui
     const { columns, rows } = fitImage(png, width, draw.rows)
-    return { element: <Image source={{ file: png.path, format: 'png' }} columns={columns} rows={rows} alt={alt} /> }
+    return { element: <Image source={{ png: png.base64 }} columns={columns} rows={rows} alt={alt} /> }
   }
 
   let art = unicodeCache.get(`${width}|${source}`)
@@ -325,17 +330,19 @@ function failure(source: string, reason: string): Failure {
   return { isRendered: false, kind: header(source).kind, reason: reason.trim() }
 }
 
-/** Stores the value and returns the entry it pushed out, if any. */
-function remember<T>(cache: Map<string, T>, key: string, value: T): T | undefined {
-  let evicted: T | undefined
+/** Stores the value, pushing out the oldest entry when the cache is full. */
+function remember<T>(cache: Map<string, T>, key: string, value: T): void {
   if (cache.size >= CACHE_LIMIT) {
     const oldest = cache.keys().next().value as string
-    evicted = cache.get(oldest)
     cache.delete(oldest)
   }
   cache.set(key, value)
+}
 
-  return evicted
+function decodedSize(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+
+  return (base64.length * 3) / 4 - padding
 }
 
 function hash(text: string): string {

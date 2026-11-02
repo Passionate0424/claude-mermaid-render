@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Image mode sends the picture as data, so it draws inside terminal multiplexers such as herdr; a PNG over 2 MiB falls back to Unicode art.
+
 ## 0.3.0
 
 - Image mode draws the picture at the card's full width, shrunk only when it would be taller than the terminal allows.
