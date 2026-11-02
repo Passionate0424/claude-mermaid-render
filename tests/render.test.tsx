@@ -245,17 +245,31 @@ const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk
 const base64Of = (bytes: number) => btoa(atob(PNG_BASE64).padEnd(bytes, '\0'))
 const PNG_LIMIT = 2097152
 
-/** Answers node with an SVG, rsvg-convert with `rsvgExit`, fs.read with `png` (or rejects), the rest with success; returns every argv and every path read. */
-function answerRuns(on: Parameters<Parameters<typeof test>[1]>[1], rsvgExit: number, png: string | Error = PNG_BASE64) {
+type PngAnswer = string | Error
+
+/**
+ * Answers node with an SVG, rsvg-convert with `rsvgExit`, fs.read with `png` (or rejects), the rest with success.
+ * A list answers each successive read in turn, the last one repeating. Returns every argv, with the paths read, the `as` of each read and the paths written.
+ */
+function answerRuns(on: Parameters<Parameters<typeof test>[1]>[1], rsvgExit: number, png: PngAnswer | PngAnswer[] = PNG_BASE64) {
   const runs: string[][] = []
   const reads: string[] = []
+  const readAs: string[] = []
+  const writes: string[] = []
+  const answers = Array.isArray(png) ? png : [png]
   on('env.get', () => ({ value: '/var/tmp-test/' }))
-  on('fs.write', () => ({ value: undefined }))
-  on('fs.read', (_, { path }) => {
-    reads.push(path)
-    if (png instanceof Error) throw png
+  on('fs.write', (_, { path }) => {
+    writes.push(path)
 
-    return { value: { base64: png } }
+    return { value: undefined }
+  })
+  on('fs.read', (_, { path, as }) => {
+    const answer = answers[Math.min(reads.length, answers.length - 1)] ?? PNG_BASE64
+    reads.push(path)
+    readAs.push(String(as))
+    if (answer instanceof Error) throw answer
+
+    return { value: { base64: answer } }
   })
   on('process.run', (_, { argv }) => {
     runs.push([...argv])
@@ -264,7 +278,7 @@ function answerRuns(on: Parameters<Parameters<typeof test>[1]>[1], rsvgExit: num
     return ran(argv[1] === 'rsvg-convert' ? rsvgExit : 0)
   })
 
-  return Object.assign(runs, { reads })
+  return Object.assign(runs, { reads, readAs, writes })
 }
 
 const removed = (runs: string[][]) => runs.filter(argv => argv[0] === 'rm').flatMap(argv => argv.slice(1))
@@ -279,7 +293,8 @@ test('image mode card holds the PNG bytes read from under the answered TMPDIR', 
 
   expect(image?.props.source).toEqual({ png: PNG_BASE64 })
   expect(runs.reads).toHaveLength(1)
-  expect(runs.reads[0]).toMatch(/^\/var\/tmp-test\/mermaid-render\/[0-9a-f]+\.png$/)
+  expect(runs.reads[0]).toMatch(/^\/var\/tmp-test\/mermaid-render\/[0-9a-f]+-\d+\.png$/)
+  expect(runs.readAs).toEqual(['bytes'])
 })
 
 test('image mode redraw of the same diagram runs no second rasterize or read', { options: { terminalRender: 'image' } }, async ($, on) => {
@@ -304,7 +319,8 @@ test('a successful rasterize removes the svg and the png in one rm', { options: 
 const sizeCases: [string, number, boolean][] = [
   ['exactly the size limit', PNG_LIMIT, true],
   ['one byte over the size limit', PNG_LIMIT + 1, false],
-  ['a few bytes', 8, true],
+  ['one byte under the size limit, base64 padded with two characters', PNG_LIMIT - 1, true],
+  ['the unpadded 70-byte fixture', 70, true],
 ]
 for (const [label, bytes, isDrawn] of sizeCases) {
   test(`image mode with a PNG of ${label}`, { options: { terminalRender: 'image' } }, async ($, on) => {
@@ -347,10 +363,91 @@ test('an evicted diagram is rasterized again when drawn again', { options: { ter
   for (let index = 1; index <= 201; index += 1) await mountReply($, `graph TD\n  E${index}-->Z`)
   await (await mountReply($, 'graph TD\n  E0-->Z')).find({ type: 'Image' })
 
-  const outputs = runs.filter(argv => argv[1] === 'rsvg-convert').map(argv => argv[argv.indexOf('--output') + 1])
+  const outputs = rasterizedStems(runs).map(output => output.replace(/-\d+\.png$/, ''))
   const firstOutput = outputs[0]
 
   expect(outputs.filter(output => output === firstOutput)).toHaveLength(2)
+})
+
+/** The base64 of a PNG whose base64 text is `chars` long (a multiple of 4) and whose bytes stay within the size limit. */
+const base64Chars = (chars: number) => base64Of((chars / 4) * 3)
+const PNG_CACHE_BUDGET = 67108864
+const BUDGET_SHARE = 2097152
+
+/** Draws `count` distinct diagrams, one after another, each answered with its own PNG. */
+async function drawEach($: Mount, prefix: string, count: number) {
+  for (let index = 0; index < count; index += 1) {
+    await (await mountReply($, `graph TD\n  ${prefix}${index}-->Z`)).find({ type: 'Image' })
+  }
+}
+const rasterizedStems = (runs: string[][]) =>
+  runs.filter(argv => argv[1] === 'rsvg-convert').map(argv => argv[argv.indexOf('--output') + 1] ?? '')
+
+test('image mode keeps every PNG while the cached base64 sums exactly to the byte budget', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const share = base64Chars(BUDGET_SHARE)
+  const count = PNG_CACHE_BUDGET / BUDGET_SHARE
+  const runs = answerRuns(on, 0, share)
+  await drawEach($, 'BA', count)
+  await (await mountReply($, 'graph TD\n  BA0-->Z')).find({ type: 'Image' })
+
+  expect(rasterized(runs)).toBe(count)
+})
+
+test('image mode evicts the oldest PNG when a new entry passes the byte budget and keeps the newest', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const share = base64Chars(BUDGET_SHARE)
+  const count = PNG_CACHE_BUDGET / BUDGET_SHARE
+  const runs = answerRuns(on, 0, [...Array(count - 1).fill(share), base64Chars(BUDGET_SHARE - 4), base64Chars(96)])
+  await drawEach($, 'BB', count)
+  await (await mountReply($, 'graph TD\n  BBX-->Z')).find({ type: 'Image' })
+  await (await mountReply($, 'graph TD\n  BBX-->Z')).find({ type: 'Image' })
+  expect(rasterized(runs)).toBe(count + 1)
+  await (await mountReply($, 'graph TD\n  BB0-->Z')).find({ type: 'Image' })
+
+  expect(rasterized(runs)).toBe(count + 2)
+  await (await mountReply($, 'graph TD\n  BB1-->Z')).find({ type: 'Image' })
+  expect(rasterized(runs)).toBe(count + 2)
+})
+
+test('image mode counts a failed PNG as zero bytes and evicts nothing for it', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const share = base64Chars(BUDGET_SHARE)
+  const count = PNG_CACHE_BUDGET / BUDGET_SHARE
+  const runs = answerRuns(on, 0, [...Array(count).fill(share), new Error('missing')])
+  await drawEach($, 'BC', count)
+  await mountReply($, 'graph TD\n  BCX-->Z')
+  await (await mountReply($, 'graph TD\n  BC0-->Z')).find({ type: 'Image' })
+
+  expect(rasterized(runs)).toBe(count + 1)
+})
+
+test('two rasterizes of one diagram write, convert, read and remove under different paths', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const runs = answerRuns(on, 0)
+  const first = mountReply($, 'graph TD\n  CC1-->CC2')
+  const second = mountReply($, 'graph TD\n  CC1-->CC2')
+  await (await first).find({ type: 'Image' })
+  await (await second).find({ type: 'Image' })
+
+  const stems = runs.reads.map(path => path.replace(/\.png$/, ''))
+  expect(stems).toHaveLength(2)
+  expect(stems[0]).not.toBe(stems[1])
+  for (const stem of stems) {
+    expect(stem).toMatch(/\/[0-9a-f]+-\d+$/)
+    expect(runs.writes.filter(path => path.startsWith(stem))).toEqual([`${stem}.svg`])
+    expect(rasterizedStems(runs).filter(path => path === `${stem}.png`)).toHaveLength(1)
+    expect(runs.filter(argv => argv[1] === 'rsvg-convert' && argv.includes(`${stem}.svg`))).toHaveLength(1)
+    expect(runs.filter(argv => argv[0] === 'rm' && argv.includes(`${stem}.svg`) && argv.includes(`${stem}.png`))).toHaveLength(1)
+  }
+  expect(runs.filter(argv => argv[0] === 'rm')).toHaveLength(2)
+})
+
+test('an evicted diagram is rasterized again under a new path', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const runs = answerRuns(on, 0)
+  await (await mountReply($, 'graph TD\n  CD0-->Z')).find({ type: 'Image' })
+  for (let index = 1; index <= 201; index += 1) await mountReply($, `graph TD\n  CD${index}-->Z`)
+  await (await mountReply($, 'graph TD\n  CD0-->Z')).find({ type: 'Image' })
+
+  const outputs = rasterizedStems(runs)
+  expect(outputs.filter(output => output === outputs[0])).toHaveLength(1)
+  expect(new Set(outputs).size).toBe(outputs.length)
 })
 
 type Mount = Parameters<Parameters<typeof test>[1]>[0]
