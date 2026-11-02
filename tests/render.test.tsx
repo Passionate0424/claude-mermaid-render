@@ -320,7 +320,7 @@ const sizeCases: [string, number, boolean][] = [
   ['exactly the size limit', PNG_LIMIT, true],
   ['one byte over the size limit', PNG_LIMIT + 1, false],
   ['one byte under the size limit, base64 padded with two characters', PNG_LIMIT - 1, true],
-  ['the unpadded 70-byte fixture', 70, true],
+  ['the 70-byte fixture', 70, true],
 ]
 for (const [label, bytes, isDrawn] of sizeCases) {
   test(`image mode with a PNG of ${label}`, { options: { terminalRender: 'image' } }, async ($, on) => {
@@ -408,6 +408,27 @@ test('image mode evicts the oldest PNG when a new entry passes the byte budget a
   expect(rasterized(runs)).toBe(count + 2)
 })
 
+test('image mode evicts several oldest PNGs for one store that overshoots the byte budget and keeps the rest', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const share = base64Chars(BUDGET_SHARE)
+  const small = base64Chars(96)
+  const smallCount = 4
+  const bigCount = PNG_CACHE_BUDGET / BUDGET_SHARE - 1
+  const runs = answerRuns(on, 0, [...Array(smallCount).fill(small), ...Array(bigCount).fill(share), share])
+  await drawEach($, 'BD', smallCount + bigCount)
+  await (await mountReply($, 'graph TD\n  BDX-->Z')).find({ type: 'Image' })
+  const drawn = smallCount + bigCount + 1
+  expect(rasterized(runs)).toBe(drawn)
+
+  await (await mountReply($, `graph TD\n  BD${smallCount}-->Z`)).find({ type: 'Image' })
+  await (await mountReply($, 'graph TD\n  BDX-->Z')).find({ type: 'Image' })
+  expect(rasterized(runs)).toBe(drawn)
+  // Newest evicted first: each redraw stores again and may push out an older entry, so the older ones must not be redrawn before it.
+  for (let step = 1; step <= smallCount; step += 1) {
+    await (await mountReply($, `graph TD\n  BD${smallCount - step}-->Z`)).find({ type: 'Image' })
+    expect(rasterized(runs)).toBe(drawn + step)
+  }
+})
+
 test('image mode counts a failed PNG as zero bytes and evicts nothing for it', { options: { terminalRender: 'image' } }, async ($, on) => {
   const share = base64Chars(BUDGET_SHARE)
   const count = PNG_CACHE_BUDGET / BUDGET_SHARE
@@ -437,6 +458,59 @@ test('two rasterizes of one diagram write, convert, read and remove under differ
     expect(runs.filter(argv => argv[0] === 'rm' && argv.includes(`${stem}.svg`) && argv.includes(`${stem}.png`))).toHaveLength(1)
   }
   expect(runs.filter(argv => argv[0] === 'rm')).toHaveLength(2)
+})
+
+const SCRATCH_DIR = '/var/tmp-test/mermaid-render/'
+
+test('every scratch path of a rasterize carries the answered session id', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const runs = answerRuns(on, 0)
+  on('session.id', () => ({ value: 'sess-42' }))
+  await (await mountReply($, 'graph TD\n  SA1-->SA2')).find({ type: 'Image' })
+
+  const stem = runs.reads[0]?.replace(/\.png$/, '') ?? ''
+  expect(stem).toMatch(/^\/var\/tmp-test\/mermaid-render\/[0-9a-f]+-sess-42-\d+$/)
+  expect(runs.writes).toEqual([`${stem}.svg`])
+  expect(rasterizedStems(runs)).toEqual([`${stem}.png`])
+  expect(runs.filter(argv => argv[0] === 'rm' && argv.includes(`${stem}.svg`) && argv.includes(`${stem}.png`))).toHaveLength(1)
+})
+
+test('two sessions rasterizing one diagram write under different session parts', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const runs = answerRuns(on, 0)
+  const ids = ['sess-a', 'sess-b']
+  let asked = 0
+  on('session.id', () => ({ value: ids[asked++] ?? 'sess-x' }))
+  const first = mountReply($, 'graph TD\n  SB1-->SB2')
+  const second = mountReply($, 'graph TD\n  SB1-->SB2')
+  await (await first).find({ type: 'Image' })
+  await (await second).find({ type: 'Image' })
+
+  expect(runs.reads).toHaveLength(2)
+  expect(runs.reads.some(path => path.includes('-sess-a-'))).toBe(true)
+  expect(runs.reads.some(path => path.includes('-sess-b-'))).toBe(true)
+})
+
+test('a session id with unsafe characters keeps every scratch path inside the scratch directory', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const runs = answerRuns(on, 0)
+  on('session.id', () => ({ value: '../x y/z' }))
+  await (await mountReply($, 'graph TD\n  SC1-->SC2')).find({ type: 'Image' })
+
+  const written = [...runs.writes, ...runs.reads, ...rasterizedStems(runs)]
+  expect(written.length).toBeGreaterThan(0)
+  for (const path of written) {
+    expect(path.startsWith(SCRATCH_DIR)).toBe(true)
+    expect(path.slice(SCRATCH_DIR.length)).toMatch(/^[0-9a-f]+-[A-Za-z0-9-]+-\d+\.(svg|png)$/)
+  }
+})
+
+test('image mode still draws when the session id cannot be read', { options: { terminalRender: 'image' } }, async ($, on) => {
+  const runs = answerRuns(on, 0)
+  on('session.id', () => {
+    throw new Error('no session')
+  })
+  const ui = await mountReply($, 'graph TD\n  SD1-->SD2')
+
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  expect(runs.reads[0]).toMatch(/^\/var\/tmp-test\/mermaid-render\/[0-9a-f]+-\d+\.png$/)
 })
 
 test('an evicted diagram is rasterized again under a new path', { options: { terminalRender: 'image' } }, async ($, on) => {
