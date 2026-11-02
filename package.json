@@ -9,6 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "postinstall": "patch-package",
     "build": "node scripts/build.mjs",
     "check:bundle": "node scripts/build.mjs && git diff --exit-code -- hooks/vendor/mermaid.js renderer/svg.mjs",
     "screenshots": "node scripts/screenshots.mjs",
@@ -18,6 +19,7 @@
   "devDependencies": {
     "beautiful-mermaid": "1.1.3",
     "esbuild": "0.24.2",
+    "patch-package": "8.0.1",
     "typescript": "^5.9.3"
   }
 }

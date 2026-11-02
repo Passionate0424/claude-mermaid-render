@@ -1,0 +1,28 @@
+diff --git a/node_modules/beautiful-mermaid/dist/index.js b/node_modules/beautiful-mermaid/dist/index.js
+index e7e087b..592937d 100644
+--- a/node_modules/beautiful-mermaid/dist/index.js
++++ b/node_modules/beautiful-mermaid/dist/index.js
+@@ -2849,6 +2849,7 @@ function drawTextOnLine(canvas, line, label, isUpwardEdge) {
+   const maxY = Math.max(line[0].y, line[1].y);
+   const middleX = minX + Math.floor((maxX - minX) / 2);
+   let middleY = minY + Math.floor((maxY - minY) / 2);
++  const lines = splitLines(label);
+   if (isUpwardEdge !== void 0 && minX === maxX) {
+     const segmentHeight = maxY - minY;
+     const offset = Math.max(1, Math.floor(segmentHeight / 4));
+@@ -2857,8 +2858,14 @@ function drawTextOnLine(canvas, line, label, isUpwardEdge) {
+     } else {
+       middleY = middleY - offset;
+     }
++    if (segmentHeight >= 2) {
++      const rowsAbove = Math.floor((lines.length - 1) / 2);
++      const rowsBelow = lines.length - 1 - rowsAbove;
++      const firstMiddle = minY + 1 + rowsAbove;
++      const lastMiddle = maxY - 1 - rowsBelow;
++      middleY = Math.min(Math.max(middleY, firstMiddle), Math.max(firstMiddle, lastMiddle));
++    }
+   }
+-  const lines = splitLines(label);
+   const startY = middleY - Math.floor((lines.length - 1) / 2);
+   for (let i = 0; i < lines.length; i++) {
+     const lineText = lines[i];
