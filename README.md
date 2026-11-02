@@ -55,7 +55,7 @@ Details that keep it pleasant:
 
 - A fence that is still streaming stays text until it closes.
 - A horizontal flowchart that does not fit the terminal is laid out vertically.
-- In `image` mode the picture fills the card width and is shrunk to fit the terminal height.
+- In `image` mode the picture fills the card width and is shrunk so the whole card fits on screen above Claude Code's prompt.
 - `image` mode sends the picture as data, not as a file name, so it draws inside a multiplexer that passes kitty graphics through, such as herdr.
 - A picture over 2 MiB falls back to Unicode art.
 - A diagram that does not parse shows the reason and its source, never a blank.

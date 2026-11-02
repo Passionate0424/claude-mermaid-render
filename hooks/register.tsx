@@ -24,6 +24,10 @@ const PNG_LIMIT = 2097152
 const PNG_CACHE_BUDGET = 67108864
 // The card's border and padding.
 const CARD_CHROME = 4
+// Rows the card spends around its picture: top border, header, header margin, bottom border.
+const CARD_ROWS = 4
+// Rows Claude Code keeps under the transcript: status line, input box with its rules, footer.
+const PROMPT_ROWS = 8
 
 const unicodeCache = new Map<string, Unicode | Failure>()
 const svgCache = new Map<string, Svg | Failure>()
@@ -296,9 +300,12 @@ function cardBody(draw: Draw, source: string, width: number): { element: RenderE
   return { element: unicodeArt(ui, art, width, draw.messages) }
 }
 
-/** Fills the card width, shrinking to the terminal height; a cell is about twice as tall as it is wide. */
+/**
+ * Fills the card width, shrinking so the whole card and Claude Code's prompt area fit the terminal height;
+ * a cell is about twice as tall as it is wide.
+ */
 function fitImage(png: { width: number; height: number }, width: number, viewportRows: number): { columns: number; rows: number } {
-  const cap = Math.min(255, Math.max(3, viewportRows - 8))
+  const cap = Math.min(255, Math.max(3, viewportRows - CARD_ROWS - PROMPT_ROWS))
   const columns = Math.min(255, width)
   const rows = Math.max(1, Math.round((columns * png.height) / png.width / 2))
   if (rows <= cap) return { columns, rows }
