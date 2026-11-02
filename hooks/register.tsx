@@ -28,7 +28,7 @@ const CARD_CHROME = 4
 const unicodeCache = new Map<string, Unicode | Failure>()
 const svgCache = new Map<string, Svg | Failure>()
 const pngCache = new Map<string, Png | undefined>()
-// Gives each rasterize its own scratch names, so overlapping renders of one diagram never remove each other's files.
+// Keeps overlapping renders of one diagram in this process from removing each other's files; the session id in the name does the same across sessions sharing a TMPDIR.
 let rasterizeCount = 0
 
 export const register: Register = (on, options) => {
@@ -98,8 +98,9 @@ export const register: Register = (on, options) => {
         if (!pngCache.has(key)) {
           // The picture goes to the terminal as data, not as a file name, because a multiplexer forwards only direct image data.
           const dir = `${((await $.env.get('TMPDIR')) ?? '/tmp').replace(/\/$/, '')}/mermaid-render`
-          rasterizeCount += 1
-          const name = `${dir}/${hash(key)}-${rasterizeCount}`
+          const count = (rasterizeCount += 1)
+          const session = await $.session.id().then(id => id.replace(/[^A-Za-z0-9-]/g, '-')).catch(() => undefined)
+          const name = `${dir}/${hash(key)}-${session === undefined ? '' : `${session}-`}${count}`
           let rasterized: Png | undefined
           try {
             await $.process.run(['mkdir', '-p', dir])
