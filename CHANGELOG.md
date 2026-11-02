@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Image mode sends the picture as data, so it draws inside terminal multiplexers such as herdr; a PNG over 2 MiB falls back to Unicode art.
+- Image mode leaves room for the card's header and Claude Code's prompt, so the whole card fits on screen.
+- Unicode art keeps an edge label between the ends of its line instead of drawing it over a node's border (a local patch to beautiful-mermaid, applied by `npm ci`).
+- The README shows how to draw pictures inside herdr with `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1`, with captures of both modes.
 
 ## 0.3.0
 

@@ -1,7 +1,7 @@
 {
   "name": "mermaid-render",
-  "version": "0.3.0",
-  "description": "Renders the Mermaid diagrams Claude Code writes or reads as elegant cards in the transcript: colored Unicode art in any terminal, real SVG on desktop.",
+  "version": "0.4.0",
+  "description": "Renders the Mermaid diagrams Claude Code writes or reads as elegant cards in the transcript: colored Unicode art in any terminal, real pictures in kitty-graphics terminals such as Ghostty and herdr, native SVG on desktop.",
   "author": {
     "name": "Klock Tecnologia",
     "email": "neto.nemesis@gmail.com",
@@ -18,7 +18,10 @@
     "terminal",
     "svg",
     "visualization",
-    "markdown"
+    "markdown",
+    "ghostty",
+    "kitty-graphics",
+    "herdr"
   ],
   "userConfig": {
     "language": {
@@ -34,7 +37,7 @@
     "terminalRender": {
       "type": "string",
       "title": "Terminal render",
-      "description": "unicode: colored box-drawing card, any terminal. image: the real SVG as a picture (kitty graphics: Ghostty, kitty, WezTerm; needs rsvg-convert).",
+      "description": "unicode: colored box-drawing card, any terminal. image: the real SVG as a picture (kitty graphics: Ghostty, kitty, WezTerm, herdr; needs rsvg-convert).",
       "default": "unicode",
       "options": [
         "unicode",
