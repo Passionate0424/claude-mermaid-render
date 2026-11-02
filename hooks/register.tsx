@@ -20,12 +20,16 @@ const SVG_LIMIT = 131072
 const CACHE_LIMIT = 200
 // The most a `{ png }` image source accepts, decoded.
 const PNG_LIMIT = 2097152
+// The most base64 text the cached PNGs may hold together.
+const PNG_CACHE_BUDGET = 67108864
 // The card's border and padding.
 const CARD_CHROME = 4
 
 const unicodeCache = new Map<string, Unicode | Failure>()
 const svgCache = new Map<string, Svg | Failure>()
 const pngCache = new Map<string, Png | undefined>()
+// Gives each rasterize its own scratch names, so overlapping renders of one diagram never remove each other's files.
+let rasterizeCount = 0
 
 export const register: Register = (on, options) => {
   const terminalRender = String(options.terminalRender ?? 'unicode')
@@ -94,7 +98,8 @@ export const register: Register = (on, options) => {
         if (!pngCache.has(key)) {
           // The picture goes to the terminal as data, not as a file name, because a multiplexer forwards only direct image data.
           const dir = `${((await $.env.get('TMPDIR')) ?? '/tmp').replace(/\/$/, '')}/mermaid-render`
-          const name = `${dir}/${hash(key)}`
+          rasterizeCount += 1
+          const name = `${dir}/${hash(key)}-${rasterizeCount}`
           let rasterized: Png | undefined
           try {
             await $.process.run(['mkdir', '-p', dir])
@@ -110,7 +115,7 @@ export const register: Register = (on, options) => {
           } catch {
             rasterized = undefined
           }
-          remember(pngCache, key, rasterized)
+          rememberPng(key, rasterized)
           // Both files are scratch: the bytes live in the cache, and a failed run may leave a half-written PNG.
           await $.process.run(['rm', '-f', `${name}.svg`, `${name}.png`]).catch(() => undefined)
         }
@@ -337,6 +342,18 @@ function remember<T>(cache: Map<string, T>, key: string, value: T): void {
     cache.delete(oldest)
   }
   cache.set(key, value)
+}
+
+/** Stores the picture, pushing out the oldest ones until the cached base64 fits the byte budget; a failed picture weighs nothing. */
+function rememberPng(key: string, png: Png | undefined): void {
+  remember(pngCache, key, png)
+  let total = 0
+  for (const cached of pngCache.values()) total += cached?.base64.length ?? 0
+  for (const oldest of pngCache.keys()) {
+    if (total <= PNG_CACHE_BUDGET || oldest === key) break
+    total -= pngCache.get(oldest)?.base64.length ?? 0
+    pngCache.delete(oldest)
+  }
 }
 
 function decodedSize(base64: string): number {

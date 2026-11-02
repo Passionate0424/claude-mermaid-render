@@ -48,7 +48,7 @@ mode). `rsvg-convert` only for the `image` mode
 | Tool rows | A finished `Bash` run whose output holds a closed mermaid fence, or that prints a whole `.mmd` / `.mermaid` file (`cat`, `sed -n`) | The command's own row and output stay; each diagram appears as a card under it |
 | Tool rows | A finished `Edit` of a `.md` file, for each mermaid fence the edit touched; of a `.mmd` / `.mermaid` file, the whole updated diagram | The edit's own diff stays; the updated diagrams appear as cards under it |
 | Any terminal | Default `unicode` mode | Box-drawing art: bold labels, soft lines, accent-colored arrows |
-| Ghostty, kitty, WezTerm | `image` mode | The real SVG, drawn as a picture (kitty graphics protocol) |
+| Ghostty, kitty, WezTerm | `image` mode | The real SVG, drawn as a picture (kitty graphics protocol); also inside a multiplexer that passes kitty graphics through, such as herdr |
 | Desktop app, VS Code | Always | Native SVG |
 
 Details that keep it pleasant:
@@ -56,6 +56,8 @@ Details that keep it pleasant:
 - A fence that is still streaming stays text until it closes.
 - A horizontal flowchart that does not fit the terminal is laid out vertically.
 - In `image` mode the picture fills the card width and is shrunk to fit the terminal height.
+- `image` mode sends the picture as data, not as a file name, so it draws inside a multiplexer that passes kitty graphics through, such as herdr.
+- A picture over 2 MiB falls back to Unicode art.
 - A diagram that does not parse shows the reason and its source, never a blank.
 - Mermaid fences shown inside another fence (documentation) are left alone.
 
@@ -78,8 +80,9 @@ Open `/plugin`, select **mermaid-render**, then **Configure**:
 | `theme` | `tokyo-night`, `tokyo-night-storm`, `catppuccin-mocha`, `dracula`, `nord`, `one-dark`, `github-dark`, `zinc-dark`, `solarized-dark`, `github-light`, `catppuccin-latte`, `zinc-light` | `tokyo-night` |
 | `language` | `en`, `pt-BR` (card titles, tool row counts and notices; any other value gives English) | `en` |
 
-Inside tmux or another multiplexer that does not pass graphics through, keep
-`unicode`.
+`image` mode sends the picture as data, so it also draws inside a multiplexer
+that passes kitty graphics through, such as herdr. In tmux or a multiplexer that
+does not, keep `unicode`. A picture over 2 MiB falls back to Unicode art.
 
 ## Try it
 
