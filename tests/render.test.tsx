@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { diagramsInFile, diagramsTouched, splitMermaid } from '../hooks/fences'
+import { renderUnicode } from '../hooks/diagram'
 import { messagesFor } from '../hooks/messages'
 
 const FLOW = ['flowchart LR', '  A[Pedido] --> B{Pago?}', '  B -->|sim| C[Enviar]', '  B -->|não| D[Cancelar]'].join('\n')
@@ -1086,3 +1087,89 @@ for (const [name, language] of NOT_PORTUGUESE) {
     expect(messagesFor(language).kinds.flowchart).toBe('Flowchart')
   })
 }
+
+function art(source: string): string[] {
+  const drawn = renderUnicode(source, 200)
+  if (!drawn.isRendered) throw new Error(drawn.reason)
+
+  return drawn.lines.map(line => line.map(run => run.text).join(''))
+}
+
+const rowOf = (lines: string[], text: string): number => lines.findIndex(line => line.includes(text))
+const BORDER = /[─┌┐└┘◇┬┴]/
+
+test('a downward edge label in a flowchart sits between the diamond border and the arrow, leaving the junction', () => {
+  const lines = art(
+    [
+      'flowchart TD',
+      '  A[View Cart] --> B[Enter Shipping Details]',
+      '  B --> C[Choose Payment Method]',
+      '  C --> D{Payment Approved?}',
+      '  D -->|Yes| E[Order Confirmation]',
+      '  D -->|No| F[Show Payment Error]',
+      '  F --> C',
+    ].join('\n'),
+  )
+  const bottom = lines.findLastIndex(line => /^◇─.*◇/.test(line))
+  const yes = rowOf(lines, 'Yes')
+
+  expect(lines[bottom]).not.toContain('Yes')
+  expect(lines[bottom]).toContain('┬')
+  expect(yes).toBeGreaterThan(bottom)
+  expect(yes).toBeLessThan(lines.findIndex((line, index) => index > bottom && line.includes('▼')))
+})
+
+test('a downward edge label sits just below the border junction and above its arrowhead', () => {
+  const lines = art('flowchart TD\n  A[Start] -->|go| B[End]')
+  const go = rowOf(lines, 'go')
+
+  expect(lines[go - 1]).toMatch(/^└.*┬.*┘$/)
+  expect(lines[go + 1]).toContain('▼')
+  expect(lines[go]?.replace('go', '')).not.toMatch(BORDER)
+})
+
+test('an upward edge label in a bottom-to-top flowchart stays off the borders of its ends', () => {
+  const lines = art('flowchart BT\n  A -->|x| B')
+  const x = rowOf(lines, 'x')
+
+  expect(lines[x]).not.toMatch(BORDER)
+  expect(lines[x - 1]).toContain('▲')
+  expect(lines[x + 1]).toMatch(/^┌/)
+})
+
+test('an upward edge label in a top-down flowchart is on neither end row of its segment', () => {
+  const lines = art('flowchart TD\n  A[Start] --> B[Middle]\n  B --> C[End]\n  B -->|back| A')
+  const back = rowOf(lines, 'back')
+
+  expect(lines[back]?.replace('back', '')).not.toMatch(BORDER)
+  expect(lines[back - 1]).toContain('▲')
+  expect(lines[back + 1]).toContain('┴')
+})
+
+test('an upward edge label taller than one row stays off the border of the node it enters', () => {
+  const lines = art('flowchart TD\n  A --> B\n  B -->|a b<br/>c d| A')
+  const top = lines.findIndex(line => line.includes('┴'))
+  const first = rowOf(lines, 'a▲b')
+  const second = rowOf(lines, 'c▼d')
+  const aBottom = lines.findIndex(line => line.includes('┬'))
+
+  expect(lines[top]).not.toMatch(/[a-d]/)
+  expect(first).toBeGreaterThan(aBottom)
+  expect(second).toBeGreaterThan(first)
+  expect(second).toBeLessThan(top)
+})
+
+test('a label taller than the rows between two nodes starts under the node it leaves', () => {
+  const lines = art('flowchart TD\n  A[Start] -->|line one<br/>line two<br/>three| B[End]')
+  const start = rowOf(lines, 'Start')
+  const bottom = start + 1
+
+  expect(lines[start]).toMatch(/│\s*Start\s*│/)
+  expect(lines[bottom]).toContain('┬')
+  expect(lines[bottom]).not.toMatch(/[a-z]/)
+  expect(lines[bottom + 1]).toMatch(/line.one/)
+})
+
+test('a horizontal edge label is drawn on the line between its two boxes', () => {
+  expect(art('flowchart LR\n  A[One] -->|go| B[Two]')).toEqual(['┌───┐    ┌───┐', '│One├go─►│Two│', '└───┘    └───┘'])
+})
