@@ -94,6 +94,7 @@ test('a Read of a .mmd file draws its diagram under the tool row', PT, async $ =
 })
 
 test('the desktop draws the SVG the node renderer answers', async ($, on) => {
+  on('env.get', () => ({ value: undefined }))
   on('process.run', () => ({
     value: {
       exitCode: 0,
@@ -1168,6 +1169,49 @@ test('a label taller than the rows between two nodes starts under the node it le
   expect(lines[bottom]).toContain('┬')
   expect(lines[bottom]).not.toMatch(/[a-z]/)
   expect(lines[bottom + 1]).toMatch(/line.one/)
+})
+
+async function mountVscodeReply($: Parameters<Parameters<typeof test>[1]>[0], surface: 'vscode' | 'mobile') {
+  return $.ui.mount({ plugin: 'mermaid-render', surface, component: 'AssistantMessage', props: { text: REPLY, isFirstOfReply: true }, viewport: VIEWPORT })
+}
+
+test('the vscode surface opens the SVG in VS Code from the enlarge button', async ($, on) => {
+  const runs: string[][] = []
+  const writes: string[] = []
+  on('env.get', (_, { name }) => ({ value: name === 'OS' ? 'Windows_NT' : 'C:\\Temp' }))
+  on('fs.write', (_, { path }) => {
+    writes.push(path)
+
+    return { value: undefined }
+  })
+  on('process.run', (_, { argv }) => {
+    runs.push([...argv])
+
+    return ran(0, SVG)
+  })
+  const ui = await mountVscodeReply($, 'vscode')
+  const button = await ui.find({ type: 'Button' })
+
+  expect(button?.text).toBe('Open larger in VS Code')
+  await ui.press({ key: button?.key ?? '' })
+
+  expect(writes).toHaveLength(1)
+  expect(writes[0]).toMatch(/^C:\\Temp\\mermaid-render\\[0-9a-f]+\.svg$/)
+  expect(runs.at(-1)).toEqual(['cmd', '/c', 'code', '-r', writes[0]])
+})
+
+test('the enlarge button is not drawn on mobile or outside Windows', async ($, on) => {
+  let os: string | undefined = 'Windows_NT'
+  on('env.get', () => ({ value: os }))
+  on('process.run', () => ran(0, SVG))
+  const mobile = await mountVscodeReply($, 'mobile')
+  expect(await mobile.find({ type: 'Button' })).toBeUndefined()
+  expect(await mobile.find({ type: 'Svg' })).toBeDefined()
+
+  os = undefined
+  const other = await mountVscodeReply($, 'vscode')
+  expect(await other.find({ type: 'Button' })).toBeUndefined()
+  expect(await other.find({ type: 'Svg' })).toBeDefined()
 })
 
 test('a horizontal edge label is drawn on the line between its two boxes', () => {

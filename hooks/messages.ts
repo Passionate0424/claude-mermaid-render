@@ -8,6 +8,7 @@ export type Messages = {
   turned: string
   tooWide: (columns: number) => string
   alt: (kind: string) => string
+  openLarger: string
   plural: Intl.PluralRules
 }
 
@@ -27,6 +28,7 @@ const en: Messages = {
   turned: '↕ laid out vertically to fit the terminal width',
   tooWide: columns => `↔ the diagram is ${columns} columns wide; widen the terminal to see all of it`,
   alt: kind => `${kind} diagram`,
+  openLarger: 'Open larger in VS Code',
   plural: new Intl.PluralRules('en'),
 }
 
@@ -46,6 +48,7 @@ const ptBR: Messages = {
   turned: '↕ disposto na vertical para caber na largura do terminal',
   tooWide: columns => `↔ o diagrama tem ${columns} colunas; alargue o terminal para vê-lo inteiro`,
   alt: kind => `diagrama ${kind}`,
+  openLarger: 'Abrir ampliado no VS Code',
   plural: new Intl.PluralRules('pt-BR'),
 }
 

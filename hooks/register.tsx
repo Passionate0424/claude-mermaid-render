@@ -12,7 +12,7 @@ type Svg = { isRendered: true; svg: string; width: number; height: number }
 type Png = { base64: string; width: number; height: number }
 /** What the hook fetched through $ for one source, before anything is drawn. */
 type Prepared = { svg?: Svg | Failure; png?: Png }
-type Draw = { ui: ElementTable; surface: RenderSurface; width: number; rows: number; prepared: Map<string, Prepared>; messages: Messages }
+type Draw = { ui: ElementTable; surface: RenderSurface; width: number; rows: number; prepared: Map<string, Prepared>; messages: Messages; openSvg?: (svg: string, source: string) => Promise<void> }
 type FileDiagrams = { path: string; lines: number; sources: string[] }
 
 const GLYPH_COLOR: Record<Glyph, string> = { label: 'text', line: 'inactive', arrow: 'claude' }
@@ -130,6 +130,15 @@ export const register: Register = (on, options) => {
     }
 
     const ui = $.ui.resolve(e)
+    // Writes the SVG to a temp file and opens it in the running VS Code window, whose image preview zooms and pans.
+    const openSvg = async (svg: string, source: string) => {
+      const temp = await $.env.get('TEMP')
+      if (temp === undefined) throw new Error('TEMP is not set')
+      const file = `${temp}\\mermaid-render\\${hash(source)}.svg`
+      await $.fs.write(file, svg)
+      const { exitCode, stderr } = await $.process.run(['cmd', '/c', 'code', '-r', file])
+      if (exitCode !== 0) await $.ui.toast(`Could not open VS Code: ${stderr.trim()}`)
+    }
     const draw: Draw = {
       ui,
       surface: e.surface,
@@ -137,6 +146,7 @@ export const register: Register = (on, options) => {
       rows: e.viewport?.rows ?? 40,
       prepared,
       messages,
+      openSvg: (e.surface === 'vscode' || e.surface === 'desktop') && (await $.env.get('OS')) === 'Windows_NT' ? openSvg : undefined,
     }
     if (e.component === 'ToolUse' && file !== undefined) return toolRow(draw, e.props.tool, file)
     if (kept.length > 0) return underEngineRow(draw, await next(e), kept)
@@ -280,8 +290,13 @@ function cardBody(draw: Draw, source: string, width: number): { element: RenderE
   const alt = draw.messages.alt(header(source).kind)
 
   if (draw.surface !== 'terminal' && svg?.isRendered && svg.svg.length <= SVG_LIMIT && 'Svg' in ui) {
-    const { Svg } = ui
-    return { element: <Svg source={svg.svg} alt={alt} /> }
+    const { Svg, Box, Button } = ui
+    const { openSvg } = draw
+    const picture = <Svg source={svg.svg} alt={alt} />
+    if (openSvg === undefined) return { element: picture }
+    const open = <Button key={`open-${hash(source)}`} variant="secondary" dimColor onPress={() => void openSvg(svg.svg, source)}>{draw.messages.openLarger}</Button>
+
+    return { element: <Box flexDirection="column">{picture}{open}</Box> }
   }
 
   if (draw.surface === 'terminal' && png !== undefined && 'Image' in ui) {
